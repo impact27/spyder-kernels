@@ -443,9 +443,8 @@ class SpyderPdb(ipyPdb, object):  # Inherits `object` to call super() in PY2
             # Do 'continue' if the first breakpoint is *not* placed
             # where the debugger is going to land.
             # Fixes issue 4681
-            if (self.continue_if_has_breakpoints and
-                    breaks and
-                    lineno < breaks[0]):
+            if (self.continue_if_has_breakpoints and not
+                  (breaks and lineno >= breaks[0])):
                 try:
                     frontend_request(blocking=False).pdb_execute('continue')
                 except (CommError, TimeoutError):
