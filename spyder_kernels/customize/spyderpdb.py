@@ -371,7 +371,7 @@ class SpyderPdb(ipyPdb, object):  # Inherits `object` to call super() in PY2
         """
         Notify spyder on any pdb command.
         """
-        self.notify_spyder(self.curframe)
+        self.notify_spyder()
         return super(SpyderPdb, self).postcmd(stop, line)
 
     if PY2:
@@ -452,34 +452,9 @@ class SpyderPdb(ipyPdb, object):  # Inherits `object` to call super() in PY2
                     logger.debug(
                         "Could not send a Pdb continue call to the frontend.")
 
-    def notify_spyder(self, frame=None):
+    def notify_spyder(self):
         """Send kernel state to the frontend."""
-        if frame is None:
-            frame = self.curframe
-
-        if frame is None:
-            return
-
-        kernel = get_ipython().kernel
-
-        # Get filename and line number of the current frame
-        fname = self.canonic(frame.f_code.co_filename)
-        if PY2:
-            try:
-                fname = unicode(fname, "utf-8")
-            except TypeError:
-                pass
-        lineno = frame.f_lineno
-
-        # Set step of the current frame (if any)
-        step = {}
-        if isinstance(fname, basestring) and isinstance(lineno, int):
-            step = dict(fname=fname, lineno=lineno)
-
-        # Publish Pdb state so we can update the Variable Explorer
-        # and the Editor on the Spyder side
-        kernel._pdb_step = step
         try:
-            kernel.publish_pdb_state()
+            get_ipython().kernel.publish_pdb_state()
         except (CommError, TimeoutError):
             logger.debug("Could not send Pdb state to the frontend.")

@@ -11,16 +11,23 @@ Spyder kernel for Jupyter.
 """
 
 # Standard library imports
+import re
 import os
 import sys
+import traceback
 import threading
 
 # Third-party imports
 from ipykernel.ipkernel import IPythonKernel
+from zmq.utils.garbage import gc
 
 # Local imports
 from spyder_kernels.comms.frontendcomm import FrontendComm
 from spyder_kernels.py3compat import PY3, input
+
+if PY3:
+    import faulthandler
+    basestring = (str,)
 
 
 # Excluded variables from the Variable Explorer (i.e. they are not
@@ -64,6 +71,9 @@ class SpyderKernel(IPythonKernel):
             'is_special_kernel_valid': self.is_special_kernel_valid,
             'pdb_input_reply': self.pdb_input_reply,
             '_interrupt_eventloop': self._interrupt_eventloop,
+            'get_current_frames': self.get_current_frames,
+            'enable_faulthandler': self.enable_faulthandler,
+            'load_faulthandler': self.load_faulthandler,
             }
         for call_id in handlers:
             self.frontend_comm.register_call_handler(
@@ -72,12 +82,11 @@ class SpyderKernel(IPythonKernel):
         self.namespace_view_settings = {}
 
         self._pdb_obj = None
-        self._pdb_step = None
-        self._do_publish_pdb_state = True
         self._mpl_backend_error = None
         self._running_namespace = None
         self._pdb_input_line = None
         self.shell.get_local_scope = self.get_local_scope
+        self.faulthandler_handle = None
 
     def get_local_scope(self, stack_depth):
         """Get local scope at given frame depth."""
@@ -92,6 +101,11 @@ class SpyderKernel(IPythonKernel):
             return frame.f_locals
 
     # -- Public API -----------------------------------------------------------
+    def do_shutdown(self, restart):
+        """Disable faulthandler if enabled before proceeding."""
+        self.disable_faulthandler()
+        super(SpyderKernel, self).do_shutdown(restart)
+
     def frontend_call(self, blocking=False, broadcast=True,
                       timeout=None, callback=None):
         """Call the frontend."""
@@ -107,12 +121,140 @@ class SpyderKernel(IPythonKernel):
             callback=callback,
             timeout=timeout)
 
+    def get_system_threads_id(self):
+        """Return the list of system threads id."""
+        ignore_threads = [
+            self.parent.poller,  # Parent poller
+            self.frontend_comm.comm_socket_thread,  # comms
+            self.shell.history_manager.save_thread,  # history
+            self.parent.heartbeat,  # heartbeat
+            self.parent.iopub_thread.thread,  # iopub
+            gc.thread,  # ZMQ garbage collector thread
+            ]
+        return [
+            thread.ident for thread in ignore_threads if thread is not None]
+
+    def filter_stack(self, stack, is_main):
+        """Return the part of the stack the user needs to see."""
+        if not PY3:
+            # Not implemented
+            return stack
+        # Remove wurlitzer frames
+        for frame_summary in stack:
+            if "wurlitzer.py" in frame_summary.filename:
+                return
+        # Cleanup main thread
+        if is_main:
+            start_idx = 9
+            for idx in range(len(stack)):
+                if stack[idx].filename.endswith(
+                        ("IPython/core/interactiveshell.py",
+                         "IPython\\core\\interactiveshell.py")):
+                    start_idx = idx + 1
+            stack = stack[start_idx:]
+        return stack
+
+    def get_current_frames(self, ignore_internal_threads=True, capture_locals=False):
+        """Get the current frames."""
+        ignore_list = self.get_system_threads_id()
+        main_id = threading.main_thread().ident
+        frames = {}
+        thread_names = {thread.ident: thread.name
+                        for thread in threading.enumerate()}
+
+        for threadId, frame in sys._current_frames().items():
+            stack = traceback.StackSummary.extract(
+                traceback.walk_stack(frame))
+            if capture_locals:
+                for f_summary, f in zip(stack, traceback.walk_stack(frame)):
+                    f_summary.locals = self.get_namespace_view(frame=f[0])
+            stack.reverse()
+            if ignore_internal_threads:
+                if threadId in ignore_list:
+                    continue
+                stack = self.filter_stack(stack, main_id == threadId)
+            if stack is not None:
+                if threadId in thread_names:
+                    thread_name = thread_names[threadId]
+                else:
+                    thread_name = str(threadId)
+                frames[thread_name] = stack
+        return frames
+
+    def load_faulthandler(self, fn, ignore_internal_threads=True):
+        """Get a fault from a previous session."""
+        regex = (r"(Current thread|Thread) "
+                 r"(0x[\da-f]+) \(most recent call first\):|"
+                 r"File \"([^\"]+)\", line (\d+) in (\S+)")
+
+        with open(fn) as f:
+            main_id = int(f.readline())
+            ignore_ids = f.readline()
+            fault_txt = f.read()
+        matches = re.findall(regex, fault_txt)
+
+        threads = {}
+        current_thread = None
+
+        for match in matches:
+            if match[0]:
+                current_thread = []
+                threads[int(match[1], base=16)] = current_thread
+            else:
+                current_thread.append(traceback.FrameSummary(
+                    match[2], int(match[3]), match[4]))
+
+        ignore_ids = [int(i) for i in ignore_ids.split()]
+        threads_list = {}
+
+        for key in threads:
+            stack = threads[key][::-1]
+            if ignore_internal_threads:
+                if key in ignore_ids:
+                    continue
+                stack = self.filter_stack(stack, main_id == key)
+            if stack is not None:
+                threads_list[key] = stack
+        return threads_list
+
+    def enable_faulthandler(self, fn):
+        """
+        Open a file to save the faulthandling and save the identifiers for
+        internal threads.
+        """
+        if not PY3:
+            # Not implemented
+            return
+        self.disable_faulthandler()
+        f = open(fn, 'w')
+        self.faulthandler_handle = (f, fn)
+        ignore_ids = self.get_system_threads_id()
+        f.write(str(threading.main_thread().ident))
+        f.write('\n')
+        f.write(" ".join([str(i) for i in ignore_ids]))
+        f.write('\n')
+        faulthandler.enable(f)
+
+    def disable_faulthandler(self):
+        """
+        Cancel the faulthandling, close the file handle, remove the file.
+        """
+        if not PY3:
+            # Not implemented
+            return
+        if self.faulthandler_handle:
+            faulthandler.disable()
+            f, fn = self.faulthandler_handle
+            f.close()
+            os.remove(fn)
+            self.faulthandler_handle = None
+
     # --- For the Variable Explorer
     def set_namespace_view_settings(self, settings):
         """Set namespace_view_settings."""
         self.namespace_view_settings = settings
 
-    def get_namespace_view(self):
+    def get_namespace_view(self, frame=None):
         """
         Return the namespace view
 
@@ -130,7 +272,7 @@ class SpyderKernel(IPythonKernel):
 
         settings = self.namespace_view_settings
         if settings:
-            ns = self._get_current_namespace()
+            ns = self._get_current_namespace(frame=frame)
             view = make_remote_view(ns, settings, EXCLUDED_NAMES)
             return view
         else:
@@ -171,7 +313,6 @@ class SpyderKernel(IPythonKernel):
     def get_value(self, name):
         """Get the value of a variable"""
         ns = self._get_current_namespace()
-        self._do_publish_pdb_state = False
         return ns[name]
 
     def set_value(self, name, value):
@@ -265,12 +406,48 @@ class SpyderKernel(IPythonKernel):
         Publish Variable Explorer state and Pdb step through
         send_spyder_msg.
         """
-        if self._pdb_obj and self._do_publish_pdb_state:
-            state = dict(namespace_view = self.get_namespace_view(),
-                         var_properties = self.get_var_properties(),
-                         step = self._pdb_step)
-            self.frontend_call(blocking=False).pdb_state(state)
-        self._do_publish_pdb_state = True
+        if not self._pdb_obj:
+            return
+
+        frame = self._pdb_obj.curframe
+        if frame is None:
+            return
+
+
+        # Get filename and line number of the current frame
+        fname = self._pdb_obj.canonic(frame.f_code.co_filename)
+        if not PY3:
+            try:
+                fname = unicode(fname, "utf-8")
+            except TypeError:
+                pass
+        lineno = frame.f_lineno
+
+        # Set step of the current frame (if any)
+        step = {}
+        if isinstance(fname, basestring) and isinstance(lineno, int):
+            step = dict(fname=fname, lineno=lineno)
+
+        # Publish Pdb state so we can update the Variable Explorer
+        # and the Editor on the Spyder side
+        pdb_stack = traceback.StackSummary.extract(self._pdb_obj.stack)
+        pdb_index = self._pdb_obj.curindex
+
+        skip_hidden = getattr(self._pdb_obj, 'skip_hidden', False)
+
+        if skip_hidden:
+            # Filter out the hidden frames
+            hidden = self._pdb_obj.hidden_frames(self._pdb_obj.stack)
+            pdb_stack = [f for f, h in zip(pdb_stack, hidden) if not h]
+            # Adjust the index
+            pdb_index -= sum(hidden[:pdb_index])
+
+        state = dict(namespace_view=self.get_namespace_view(),
+                     var_properties=self.get_var_properties(),
+                     step=step,
+                     pdb_stack=(pdb_stack, pdb_index))
+
+        self.frontend_call(blocking=False).pdb_state(state)
 
     def set_spyder_breakpoints(self, breakpoints):
         """
@@ -446,13 +623,21 @@ class SpyderKernel(IPythonKernel):
 
     # -- Private API ---------------------------------------------------
     # --- For the Variable Explorer
-    def _get_current_namespace(self, with_magics=False):
+    def _get_current_namespace(self, with_magics=False, frame=None):
         """
         Return current namespace
 
         This is globals() if not debugging, or a dictionary containing
         both locals() and globals() for current frame when debugging
         """
+        if frame is not None:
+            ns = frame.f_globals.copy()
+            if self._pdb_frame is frame:
+                ns.update(self._pdb_locals)
+            else:
+                ns.update(frame.f_locals)
+            return ns
+
         ns = {}
         if self._running_namespace is None:
             ns.update(self._mglobals())
