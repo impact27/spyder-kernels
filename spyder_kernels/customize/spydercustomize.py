@@ -21,6 +21,7 @@ import time
 import warnings
 import logging
 import cmd
+import traceback
 
 from IPython.core.getipython import get_ipython
 
@@ -464,6 +465,13 @@ def exec_code(code, filename, ns_globals, ns_locals=None, post_mortem=False):
         else:
             # We ignore the call to exec
             ipython_shell.showtraceback(tb_offset=1)
+            try:
+                etype, error, tb = sys.exc_info()
+                tb = traceback.extract_tb(tb.tb_next)
+                frontend_request(blocking=False).new_traceback(
+                    etype, error, tb)
+            except Exception:
+                return
     __tracebackhide__ = "__pdb_exit__"
 
 
