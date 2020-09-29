@@ -29,6 +29,29 @@ else:
 logger = logging.getLogger(__name__)
 
 
+class DebugWrapper(object):
+    """
+    Notifies the frontend when debuggging starts/stops
+    """
+    def __enter__(self):
+        """
+        Debugging starts.
+        """
+        try:
+            frontend_request(blocking=True).set_debug_state(True)
+        except (CommError, TimeoutError):
+            logger.debug("Could not send debugging state to the frontend.")
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """
+        Debugging ends.
+        """
+        try:
+            frontend_request(blocking=True).set_debug_state(False)
+        except (CommError, TimeoutError):
+            logger.debug("Could not send debugging state to the frontend.")
+
+
 class SpyderPdb(ipyPdb, object):  # Inherits `object` to call super() in PY2
     """
     Extends Pdb to add features:
@@ -284,7 +307,6 @@ class SpyderPdb(ipyPdb, object):  # Inherits `object` to call super() in PY2
     def preloop(self):
         """Ask Spyder for breakpoints before the first prompt is created."""
         try:
-            frontend_request(blocking=True).set_debug_state(True)
             pdb_settings = frontend_request().get_pdb_settings()
             self.pdb_ignore_lib = pdb_settings['pdb_ignore_lib']
             self.pdb_execute_events = pdb_settings['pdb_execute_events']
@@ -295,14 +317,6 @@ class SpyderPdb(ipyPdb, object):  # Inherits `object` to call super() in PY2
         except (CommError, TimeoutError):
             logger.debug("Could not get breakpoints from the frontend.")
         super(SpyderPdb, self).preloop()
-
-    def postloop(self):
-        """Notifies spyder that the loop has ended."""
-        try:
-            frontend_request(blocking=True).set_debug_state(False)
-        except (CommError, TimeoutError):
-            logger.debug("Could not send debugging state to the frontend.")
-        super(SpyderPdb, self).postloop()
 
     def set_continue(self):
         """
@@ -359,13 +373,6 @@ class SpyderPdb(ipyPdb, object):  # Inherits `object` to call super() in PY2
                 _print("--KeyboardInterrupt--\n"
                        "For copying text while debugging, use Ctrl+Shift+C",
                        file=self.stdout)
-            except Exception:
-                try:
-                    frontend_request(blocking=True).set_debug_state(False)
-                except (CommError, TimeoutError):
-                    logger.debug(
-                        "Could not send debugging state to the frontend.")
-                raise
 
     def postcmd(self, stop, line):
         """
@@ -483,3 +490,28 @@ class SpyderPdb(ipyPdb, object):  # Inherits `object` to call super() in PY2
             kernel.publish_pdb_state()
         except (CommError, TimeoutError):
             logger.debug("Could not send Pdb state to the frontend.")
+
+
+    def run(self, cmd, globals=None, locals=None):
+        """Debug a statement executed via the exec() function.
+
+        globals defaults to __main__.dict; locals defaults to globals.
+        """
+        with DebugWrapper():
+            super(SpyderPdb, self).run(cmd, globals, locals)
+
+    def runeval(self, expr, globals=None, locals=None):
+        """Debug an expression executed via the eval() function.
+
+        globals defaults to __main__.dict; locals defaults to globals.
+        """
+        with DebugWrapper():
+            super(SpyderPdb, self).runeval(expr, globals, locals)
+
+    def runcall(self, *args, **kwds):
+        """Debug a single function call.
+
+        Return the result of the function call.
+        """
+        with DebugWrapper():
+            super(SpyderPdb, self).runcall(*args, **kwds)
