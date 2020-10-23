@@ -27,7 +27,6 @@ from spyder_kernels.comms.frontendcomm import FrontendComm
 from spyder_kernels.py3compat import PY3, input
 
 if PY3:
-    import faulthandler
     basestring = (str,)
 
 
@@ -92,8 +91,6 @@ class SpyderKernel(IPythonKernel):
             'pdb_input_reply': self.pdb_input_reply,
             '_interrupt_eventloop': self._interrupt_eventloop,
             'get_current_frames': self.get_current_frames,
-            'enable_faulthandler': self.enable_faulthandler,
-            'load_faulthandler': self.load_faulthandler,
             }
         for call_id in handlers:
             self.frontend_comm.register_call_handler(
@@ -106,7 +103,6 @@ class SpyderKernel(IPythonKernel):
         self._running_namespace = None
         self._pdb_input_line = None
         self.shell.get_local_scope = self.get_local_scope
-        self.faulthandler_handle = None
 
     def get_local_scope(self, stack_depth):
         """Get local scope at given frame depth."""
@@ -121,11 +117,6 @@ class SpyderKernel(IPythonKernel):
             return frame.f_locals
 
     # -- Public API -----------------------------------------------------------
-    def do_shutdown(self, restart):
-        """Disable faulthandler if enabled before proceeding."""
-        self.disable_faulthandler()
-        super(SpyderKernel, self).do_shutdown(restart)
-
     def frontend_call(self, blocking=False, broadcast=True,
                       timeout=None, callback=None):
         """Call the frontend."""
@@ -201,74 +192,6 @@ class SpyderKernel(IPythonKernel):
                     thread_name = str(threadId)
                 frames[thread_name] = stack
         return frames
-
-    def load_faulthandler(self, fn, ignore_internal_threads=True):
-        """Get a fault from a previous session."""
-        regex = (r"(Current thread|Thread) "
-                 r"(0x[\da-f]+) \(most recent call first\):|"
-                 r"File \"([^\"]+)\", line (\d+) in (\S+)")
-
-        with open(fn) as f:
-            main_id = int(f.readline())
-            ignore_ids = f.readline()
-            fault_txt = f.read()
-        matches = re.findall(regex, fault_txt)
-
-        threads = {}
-        current_thread = None
-
-        for match in matches:
-            if match[0]:
-                current_thread = []
-                threads[int(match[1], base=16)] = current_thread
-            else:
-                current_thread.append(traceback.FrameSummary(
-                    match[2], int(match[3]), match[4]))
-
-        ignore_ids = [int(i) for i in ignore_ids.split()]
-        threads_list = {}
-
-        for key in threads:
-            stack = threads[key][::-1]
-            if ignore_internal_threads:
-                if key in ignore_ids:
-                    continue
-                stack = self.filter_stack(stack, main_id == key)
-            if stack is not None:
-                threads_list[key] = stack
-        return threads_list
-
-    def enable_faulthandler(self, fn):
-        """
-        Open a file to save the faulthandling and save the identifiers for
-        internal threads.
-        """
-        if not PY3:
-            # Not implemented
-            return
-        self.disable_faulthandler()
-        f = open(fn, 'w')
-        self.faulthandler_handle = (f, fn)
-        ignore_ids = self.get_system_threads_id()
-        f.write(str(threading.main_thread().ident))
-        f.write('\n')
-        f.write(" ".join([str(i) for i in ignore_ids]))
-        f.write('\n')
-        faulthandler.enable(f)
-
-    def disable_faulthandler(self):
-        """
-        Cancel the faulthandling, close the file handle, remove the file.
-        """
-        if not PY3:
-            # Not implemented
-            return
-        if self.faulthandler_handle:
-            faulthandler.disable()
-            f, fn = self.faulthandler_handle
-            f.close()
-            os.remove(fn)
-            self.faulthandler_handle = None
 
     # --- For the Variable Explorer
     def set_namespace_view_settings(self, settings):
