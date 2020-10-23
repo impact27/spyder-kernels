@@ -22,7 +22,6 @@ import shlex
 import sys
 import time
 import warnings
-import traceback
 
 from IPython import __version__ as ipy_version
 from IPython.core.getipython import get_ipython
