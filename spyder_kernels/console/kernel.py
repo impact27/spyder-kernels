@@ -38,7 +38,7 @@ class SpyderShell(ZMQInteractiveShell):
     def showtraceback(self, exc_tuple=None, filename=None, tb_offset=None,
                       exception_only=False, running_compiled_code=False):
         """Display the exception that just occurred."""
-        super().showtraceback(
+        super(SpyderShell, self).showtraceback(
             exc_tuple, filename, tb_offset,
             exception_only, running_compiled_code)
         if not exception_only:
