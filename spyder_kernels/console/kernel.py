@@ -34,27 +34,29 @@ if PY3:
 EXCLUDED_NAMES = ['In', 'Out', 'exit', 'get_ipython', 'quit']
 
 
-class SpyderShell(ZMQInteractiveShell):
-    def showtraceback(self, exc_tuple=None, filename=None, tb_offset=None,
-                      exception_only=False, running_compiled_code=False):
-        """Display the exception that just occurred."""
-        super(SpyderShell, self).showtraceback(
-            exc_tuple, filename, tb_offset,
-            exception_only, running_compiled_code)
-        if not exception_only:
-            try:
-                etype, value, tb = self._get_exc_info(exc_tuple)
-                tb = traceback.extract_tb(tb.tb_next)
-                self.kernel.frontend_call(blocking=False).show_traceback(
-                    etype, value, tb)
-            except Exception:
-                return
+if PY3:
+    class SpyderShell(ZMQInteractiveShell):
+        def showtraceback(self, exc_tuple=None, filename=None, tb_offset=None,
+                          exception_only=False, running_compiled_code=False):
+            """Display the exception that just occurred."""
+            super(SpyderShell, self).showtraceback(
+                exc_tuple, filename, tb_offset,
+                exception_only, running_compiled_code)
+            if not exception_only:
+                try:
+                    etype, value, tb = self._get_exc_info(exc_tuple)
+                    tb = traceback.extract_tb(tb.tb_next)
+                    self.kernel.frontend_call(blocking=False).show_traceback(
+                        etype, value, tb)
+                except Exception:
+                    return
 
 
 class SpyderKernel(IPythonKernel):
     """Spyder kernel for Jupyter."""
 
-    shell_class = SpyderShell
+    if PY3:
+        shell_class = SpyderShell
 
     def __init__(self, *args, **kwargs):
         super(SpyderKernel, self).__init__(*args, **kwargs)
