@@ -11,7 +11,6 @@ Spyder kernel for Jupyter.
 """
 
 # Standard library imports
-import re
 import os
 import sys
 import traceback
