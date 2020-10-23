@@ -174,7 +174,8 @@ class SpyderKernel(IPythonKernel):
             stack = stack[start_idx:]
         return stack
 
-    def get_current_frames(self, ignore_internal_threads=True, capture_locals=False):
+    def get_current_frames(self, ignore_internal_threads=True,
+                           capture_locals=False):
         """Get the current frames."""
         ignore_list = self.get_system_threads_id()
         main_id = threading.main_thread().ident
@@ -432,7 +433,6 @@ class SpyderKernel(IPythonKernel):
         frame = self._pdb_obj.curframe
         if frame is None:
             return
-
 
         # Get filename and line number of the current frame
         fname = self._pdb_obj.canonic(frame.f_code.co_filename)
