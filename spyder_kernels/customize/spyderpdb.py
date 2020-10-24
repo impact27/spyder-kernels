@@ -464,7 +464,40 @@ class SpyderPdb(ipyPdb, object):  # Inherits `object` to call super() in PY2
 
     def notify_spyder(self):
         """Send kernel state to the frontend."""
-        try:
-            get_ipython().kernel.publish_pdb_state()
-        except (CommError, TimeoutError):
-            logger.debug("Could not send Pdb state to the frontend.")
+
+        frame = self.curframe
+        if frame is None:
+            return
+
+        # Get filename and line number of the current frame
+        fname = self.canonic(frame.f_code.co_filename)
+        if PY2:
+            try:
+                fname = unicode(fname, "utf-8")
+            except TypeError:
+                pass
+        lineno = frame.f_lineno
+
+        # Set step of the current frame (if any)
+        step = {}
+        if isinstance(fname, basestring) and isinstance(lineno, int):
+            step = dict(fname=fname, lineno=lineno)
+
+        # Publish Pdb state so we can update the Variable Explorer
+        # and the Editor on the Spyder side
+        pdb_stack = traceback.StackSummary.extract(self.stack)
+        pdb_index = self.curindex
+
+        skip_hidden = getattr(self, 'skip_hidden', False)
+
+        if skip_hidden:
+            # Filter out the hidden frames
+            hidden = self.hidden_frames(self.stack)
+            pdb_stack = [f for f, h in zip(pdb_stack, hidden) if not h]
+            # Adjust the index
+            pdb_index -= sum(hidden[:pdb_index])
+
+        state = dict(step=step,
+                     pdb_stack=(pdb_stack, pdb_index))
+
+        get_ipython().kernel.publish_pdb_state(state)

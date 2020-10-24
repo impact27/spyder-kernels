@@ -11,6 +11,7 @@ Spyder kernel for Jupyter.
 """
 
 # Standard library imports
+import logging
 import os
 import sys
 import traceback
@@ -22,11 +23,14 @@ from ipykernel.zmqshell import ZMQInteractiveShell
 from zmq.utils.garbage import gc
 
 # Local imports
-from spyder_kernels.comms.frontendcomm import FrontendComm
-from spyder_kernels.py3compat import PY3, input
+from spyder_kernels.comms.frontendcomm import FrontendComm, CommError
+from spyder_kernels.py3compat import PY3, input, TimeoutError
 
 if PY3:
     basestring = (str,)
+
+
+logger = logging.getLogger(__name__)
 
 
 # Excluded variables from the Variable Explorer (i.e. they are not
@@ -346,52 +350,17 @@ class SpyderKernel(IPythonKernel):
             return self._pdb_obj.do_complete(code, cursor_pos)
         return self._do_complete(code, cursor_pos)
 
-    def publish_pdb_state(self):
+    def publish_pdb_state(self, state):
         """
         Publish Variable Explorer state and Pdb step through
         send_spyder_msg.
         """
-        if not self._pdb_obj:
-            return
-
-        frame = self._pdb_obj.curframe
-        if frame is None:
-            return
-
-        # Get filename and line number of the current frame
-        fname = self._pdb_obj.canonic(frame.f_code.co_filename)
-        if not PY3:
-            try:
-                fname = unicode(fname, "utf-8")
-            except TypeError:
-                pass
-        lineno = frame.f_lineno
-
-        # Set step of the current frame (if any)
-        step = {}
-        if isinstance(fname, basestring) and isinstance(lineno, int):
-            step = dict(fname=fname, lineno=lineno)
-
-        # Publish Pdb state so we can update the Variable Explorer
-        # and the Editor on the Spyder side
-        pdb_stack = traceback.StackSummary.extract(self._pdb_obj.stack)
-        pdb_index = self._pdb_obj.curindex
-
-        skip_hidden = getattr(self._pdb_obj, 'skip_hidden', False)
-
-        if skip_hidden:
-            # Filter out the hidden frames
-            hidden = self._pdb_obj.hidden_frames(self._pdb_obj.stack)
-            pdb_stack = [f for f, h in zip(pdb_stack, hidden) if not h]
-            # Adjust the index
-            pdb_index -= sum(hidden[:pdb_index])
-
-        state = dict(namespace_view=self.get_namespace_view(),
-                     var_properties=self.get_var_properties(),
-                     step=step,
-                     pdb_stack=(pdb_stack, pdb_index))
-
-        self.frontend_call(blocking=False).pdb_state(state)
+        state["namespace_view"] = self.get_namespace_view()
+        state["var_properties"] = self.get_var_properties()
+        try:
+            self.frontend_call(blocking=False).pdb_state(state)
+        except (CommError, TimeoutError):
+            logger.debug("Could not send Pdb state to the frontend.")
 
     def set_spyder_breakpoints(self, breakpoints):
         """
