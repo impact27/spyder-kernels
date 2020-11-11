@@ -19,6 +19,7 @@ import threading
 # Third-party imports
 import ipykernel
 from ipykernel.ipkernel import IPythonKernel
+from ipykernel.zmqshell import ZMQInteractiveShell
 
 # Local imports
 from spyder_kernels.py3compat import TEXT_TYPES, to_text_string
@@ -33,8 +34,23 @@ from spyder_kernels.utils.misc import (
 EXCLUDED_NAMES = ['In', 'Out', 'exit', 'get_ipython', 'quit']
 
 
+class SpyderShell(ZMQInteractiveShell):
+    """Spyder shell."""
+
+    def enable_matplotlib(self, gui=None):
+        """Enable matplotlib."""
+        gui, backend = super(SpyderShell, self).enable_matplotlib(gui)
+        try:
+            self.kernel.frontend_call(blocking=False).update_matplotlib_gui(gui)
+        except Exception:
+            pass
+        return gui, backend
+
+
 class SpyderKernel(IPythonKernel):
     """Spyder kernel for Jupyter."""
+
+    shell_class = SpyderShell
 
     def __init__(self, *args, **kwargs):
         super(SpyderKernel, self).__init__(*args, **kwargs)
@@ -79,6 +95,8 @@ class SpyderKernel(IPythonKernel):
             'set_autocall': self.set_autocall,
             'pdb_input_reply': self.pdb_input_reply,
             '_interrupt_eventloop': self._interrupt_eventloop,
+            "set_matplotlib_interactive": self.set_matplotlib_interactive,
+            "get_matplotlib_interactive": self.get_matplotlib_interactive,
             }
         for call_id in handlers:
             self.frontend_comm.register_call_handler(
@@ -107,6 +125,17 @@ class SpyderKernel(IPythonKernel):
             return frame.f_locals
 
     # -- Public API -----------------------------------------------------------
+    def set_matplotlib_interactive(self, interactive):
+        """Set if matplotlib should be interactive."""
+        if interactive:
+            self.shell.enable_matplotlib("auto")
+        else:
+            self.shell.enable_matplotlib("inline")
+
+    def get_matplotlib_interactive(self):
+        """Get matplotlib interactive state."""
+        return self.shell.active_eventloop != "inline"
+
     def frontend_call(self, blocking=False, broadcast=True,
                       timeout=None, callback=None):
         """Call the frontend."""
