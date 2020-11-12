@@ -43,8 +43,19 @@ logger = logging.getLogger(__name__)
 EXCLUDED_NAMES = ['In', 'Out', 'exit', 'get_ipython', 'quit']
 
 
-if PY3:
-    class SpyderShell(ZMQInteractiveShell):
+class SpyderShell(ZMQInteractiveShell):
+    """Spyder shell."""
+
+    def enable_matplotlib(self, gui=None):
+        """Enable matplotlib."""
+        gui, backend = super(SpyderShell, self).enable_matplotlib(gui)
+        try:
+            self.kernel.frontend_call(blocking=False).update_matplotlib_gui(gui)
+        except Exception:
+            pass
+        return gui, backend
+
+    if PY3:
         def showtraceback(self, exc_tuple=None, filename=None, tb_offset=None,
                           exception_only=False, running_compiled_code=False):
             """Display the exception that just occurred."""
@@ -66,8 +77,7 @@ if PY3:
 class SpyderKernel(IPythonKernel):
     """Spyder kernel for Jupyter."""
 
-    if PY3:
-        shell_class = SpyderShell
+    shell_class = SpyderShell
 
     def __init__(self, *args, **kwargs):
         super(SpyderKernel, self).__init__(*args, **kwargs)
@@ -112,6 +122,8 @@ class SpyderKernel(IPythonKernel):
             'set_autocall': self.set_autocall,
             'pdb_input_reply': self.pdb_input_reply,
             '_interrupt_eventloop': self._interrupt_eventloop,
+            "set_matplotlib_interactive": self.set_matplotlib_interactive,
+            "get_matplotlib_interactive": self.get_matplotlib_interactive,
             'get_current_frames': self.get_current_frames,
             }
         for call_id in handlers:
@@ -139,6 +151,17 @@ class SpyderKernel(IPythonKernel):
             return frame.f_locals
 
     # -- Public API -----------------------------------------------------------
+    def set_matplotlib_interactive(self, interactive):
+        """Set if matplotlib should be interactive."""
+        if interactive:
+            self.shell.enable_matplotlib("auto")
+        else:
+            self.shell.enable_matplotlib("inline")
+
+    def get_matplotlib_interactive(self):
+        """Get matplotlib interactive state."""
+        return self.shell.active_eventloop != "inline"
+
     def frontend_call(self, blocking=False, broadcast=True,
                       timeout=None, callback=None):
         """Call the frontend."""
