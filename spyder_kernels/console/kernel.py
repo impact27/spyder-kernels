@@ -46,6 +46,18 @@ EXCLUDED_NAMES = ['In', 'Out', 'exit', 'get_ipython', 'quit']
 class SpyderShell(ZMQInteractiveShell):
     """Spyder shell."""
 
+    def get_local_scope(self, stack_depth):
+        """Get local scope at given frame depth."""
+        frame = sys._getframe(stack_depth + 1)
+        if self.kernel._pdb_frame is frame:
+            # we also give the globals because they might not be in
+            # self.user_ns
+            namespace = frame.f_globals.copy()
+            namespace.update(self.kernel._pdb_locals)
+            return namespace
+        else:
+            return frame.f_locals
+
     def enable_matplotlib(self, gui=None):
         """Enable matplotlib."""
         gui, backend = super(SpyderShell, self).enable_matplotlib(gui)
@@ -131,24 +143,10 @@ class SpyderKernel(IPythonKernel):
                 call_id, handlers[call_id])
 
         self.namespace_view_settings = {}
-
         self._pdb_obj = None
         self._mpl_backend_error = None
         self._running_namespace = None
         self._pdb_input_line = None
-        self.shell.get_local_scope = self.get_local_scope
-
-    def get_local_scope(self, stack_depth):
-        """Get local scope at given frame depth."""
-        frame = sys._getframe(stack_depth + 1)
-        if self._pdb_frame is frame:
-            # we also give the globals because they might not be in
-            # self.shell.user_ns
-            namespace = frame.f_globals.copy()
-            namespace.update(self._pdb_locals)
-            return namespace
-        else:
-            return frame.f_locals
 
     # -- Public API -----------------------------------------------------------
     def set_matplotlib_interactive(self, interactive):
