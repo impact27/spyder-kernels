@@ -54,6 +54,15 @@ class SpyderShell(ZMQInteractiveShell):
         else:
             return frame.f_locals
 
+    def enable_matplotlib(self, gui=None):
+        """Enable matplotlib."""
+        gui, backend = super(SpyderShell, self).enable_matplotlib(gui)
+        try:
+            self.kernel.frontend_call(blocking=False).update_matplotlib_gui(gui)
+        except Exception:
+            pass
+        return gui, backend
+
 
 class SpyderKernel(IPythonKernel):
     """Spyder kernel for Jupyter."""
