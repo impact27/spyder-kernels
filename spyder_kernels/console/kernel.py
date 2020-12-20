@@ -31,7 +31,8 @@ from spyder_kernels.py3compat import TEXT_TYPES, to_text_string
 from spyder_kernels.py3compat import PY3, input, TimeoutError
 from spyder_kernels.comms.frontendcomm import FrontendComm, CommError
 from spyder_kernels.utils.misc import (
-    MPL_BACKENDS_FROM_SPYDER, MPL_BACKENDS_TO_SPYDER, INLINE_FIGURE_FORMATS)
+    MPL_BACKENDS_FROM_SPYDER, MPL_BACKENDS_TO_SPYDER, INLINE_FIGURE_FORMATS,
+    automatic_backend)
 
 if PY3:
     import faulthandler
@@ -68,6 +69,8 @@ class SpyderShell(ZMQInteractiveShell):
 
     def enable_matplotlib(self, gui=None):
         """Enable matplotlib."""
+        if gui.lower() == "auto":
+            gui = automatic_backend()
         gui, backend = super(SpyderShell, self).enable_matplotlib(gui)
         try:
             self.kernel.frontend_call(blocking=False).update_matplotlib_gui(gui)
