@@ -122,8 +122,6 @@ class SpyderKernel(IPythonKernel):
             'get_matplotlib_backend': self.get_matplotlib_backend,
             'pdb_input_reply': self.pdb_input_reply,
             '_interrupt_eventloop': self._interrupt_eventloop,
-            "set_matplotlib_interactive": self.set_matplotlib_interactive,
-            "get_matplotlib_interactive": self.get_matplotlib_interactive,
             'get_current_frames': self.get_current_frames,
             }
         for call_id in handlers:
