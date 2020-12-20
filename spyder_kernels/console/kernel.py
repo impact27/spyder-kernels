@@ -22,6 +22,7 @@ from ipykernel.ipkernel import IPythonKernel
 from ipykernel.zmqshell import ZMQInteractiveShell
 
 # Local imports
+from spyder_kernels import __version__
 from spyder_kernels.py3compat import TEXT_TYPES, to_text_string
 from spyder_kernels.comms.frontendcomm import FrontendComm
 from spyder_kernels.py3compat import PY3, input
@@ -62,6 +63,12 @@ class SpyderShell(ZMQInteractiveShell):
         except Exception:
             pass
         return gui, backend
+    @property
+    def banner(self):
+        """Get banner."""
+        return (
+            "Spyder Kernels {version}".format(version=__version__)
+            + " -- Jupyter kernels for the Spyder console")
 
 
 class SpyderKernel(IPythonKernel):
