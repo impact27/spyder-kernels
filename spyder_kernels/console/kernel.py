@@ -46,6 +46,11 @@ EXCLUDED_NAMES = ['In', 'Out', 'exit', 'get_ipython', 'quit']
 class SpyderShell(ZMQInteractiveShell):
     """Spyder shell."""
 
+    def ask_exit(self):
+        """Engage the exit actions."""
+        self.kernel.frontend_comm.close_thread()
+        return super(SpyderShell, self).ask_exit()
+
     def get_local_scope(self, stack_depth):
         """Get local scope at given frame depth."""
         frame = sys._getframe(stack_depth + 1)
@@ -57,15 +62,6 @@ class SpyderShell(ZMQInteractiveShell):
             return namespace
         else:
             return frame.f_locals
-
-    def enable_matplotlib(self, gui=None):
-        """Enable matplotlib."""
-        gui, backend = super(SpyderShell, self).enable_matplotlib(gui)
-        try:
-            self.kernel.frontend_call(blocking=False).update_matplotlib_gui(gui)
-        except Exception:
-            pass
-        return gui, backend
 
     if PY3:
         def showtraceback(self, exc_tuple=None, filename=None, tb_offset=None,
@@ -124,14 +120,6 @@ class SpyderKernel(IPythonKernel):
             'update_syspath': self.update_syspath,
             'is_special_kernel_valid': self.is_special_kernel_valid,
             'get_matplotlib_backend': self.get_matplotlib_backend,
-            'set_matplotlib_backend': self.set_matplotlib_backend,
-            'set_mpl_inline_figure_format': self.set_mpl_inline_figure_format,
-            'set_mpl_inline_resolution': self.set_mpl_inline_resolution,
-            'set_mpl_inline_figure_size': self.set_mpl_inline_figure_size,
-            'set_mpl_inline_bbox_inches': self.set_mpl_inline_bbox_inches,
-            'set_jedi_completer': self.set_jedi_completer,
-            'set_greedy_completer': self.set_greedy_completer,
-            'set_autocall': self.set_autocall,
             'pdb_input_reply': self.pdb_input_reply,
             '_interrupt_eventloop': self._interrupt_eventloop,
             "set_matplotlib_interactive": self.set_matplotlib_interactive,
@@ -149,17 +137,6 @@ class SpyderKernel(IPythonKernel):
         self._pdb_input_line = None
 
     # -- Public API -----------------------------------------------------------
-    def set_matplotlib_interactive(self, interactive):
-        """Set if matplotlib should be interactive."""
-        if interactive:
-            self.shell.enable_matplotlib("auto")
-        else:
-            self.shell.enable_matplotlib("inline")
-
-    def get_matplotlib_interactive(self):
-        """Get matplotlib interactive state."""
-        return self.shell.active_eventloop != "inline"
-
     def frontend_call(self, blocking=False, broadcast=True,
                       timeout=None, callback=None):
         """Call the frontend."""
@@ -468,12 +445,20 @@ class SpyderKernel(IPythonKernel):
             is_main_thread = isinstance(
                 threading.current_thread(), threading._MainThread)
 
+        # Get input by running eventloop
         if is_main_thread and self.eventloop:
             while self._pdb_input_line is None:
-                self.eventloop(self)
-        else:
+                eventloop = self.eventloop
+                if eventloop:
+                    eventloop(self)
+                else:
+                    break
+
+        # Get input by blocking
+        if self._pdb_input_line is None:
             self.frontend_comm.wait_until(
                 lambda: self._pdb_input_line is not None)
+
         return self._pdb_input_line
 
     def _interrupt_eventloop(self):
@@ -582,7 +567,10 @@ class SpyderKernel(IPythonKernel):
 
     def get_cwd(self):
         """Get current working directory."""
-        return os.getcwd()
+        try:
+            return os.getcwd()
+        except (IOError, OSError):
+            pass
 
     def get_syspath(self):
         """Return sys.path contents."""
