@@ -680,8 +680,17 @@ class SpyderPdb(ipyPdb, object):  # Inherits `object` to call super() in PY2
             # Adjust the index
             pdb_index -= sum(hidden[:pdb_index])
 
+        breakpoints = {}
+        for bp in bdb.Breakpoint.bpbynumber:
+            if bp:
+                file = self.canonic(bp.file)
+                if file not in breakpoints:
+                    breakpoints[file] = []
+                breakpoints[file].append((bp.line, bp.cond))
+
         state = dict(step=step,
-                     pdb_stack=(pdb_stack, pdb_index))
+                     pdb_stack=(pdb_stack, pdb_index),
+                     breakpoints=breakpoints)
 
         get_ipython().kernel.publish_pdb_state(state)
 
