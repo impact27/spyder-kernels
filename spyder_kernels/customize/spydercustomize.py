@@ -18,6 +18,7 @@ import io
 import logging
 import os
 import pdb
+import tempfile
 import shlex
 import sys
 import time
@@ -454,14 +455,15 @@ def exec_code(code, filename, ns_globals, ns_locals=None, post_mortem=False,
             compiled = compile(transform_cell(code), filename, 'exec')
 
         if debugger:
-            debugger.run(compiled, 
+            debugger.run(
+                compiled,
                 globals=ns_globals,
                 locals=ns_locals
             )
         elif profile_filename:
             # Run with profiler
             cProfile.runctx(
-                compiled, 
+                compiled,
                 globals=ns_globals,
                 locals=ns_locals,
                 filename=profile_filename
@@ -581,7 +583,7 @@ def runfile(filename=None, args=None, wdir=None, namespace=None,
                 ipython_shell.run_cell_magic('cython', '', f.read())
         else:
             exec_code(file_code, filename, ns_globals, ns_locals,
-                      post_mortem=post_mortem, 
+                      post_mortem=post_mortem,
                       **kwargs)
 
         sys.argv = ['']
@@ -634,22 +636,25 @@ builtins.debugfile = debugfile
 
 
 def profile_file(filename=None, args=None, wdir=None, post_mortem=False,
-                current_namespace=False):
+                 current_namespace=False):
     """
     Profile filename
     args: command line arguments (string)
     wdir: working directory
     post_mortem: boolean, included for compatiblity with runfile
     """
+    profile_file = tempfile.NamedTemporaryFile()
     try:
         runfile(
             filename=filename, args=args, wdir=wdir,
             current_namespace=current_namespace,
-            profile_filename=PROFILE_FILE)
+            profile_filename=profile_file.name)
     finally:
-        if os.path.isfile(PROFILE_FILE):
-            with open(PROFILE_FILE, "br") as f:
-                frontend_request().show_profile_file(f.read())
+        profile_result = profile_file.read()
+        if profile_result:
+            frontend_request().show_profile_file(profile_result)
+        profile_file.close()
+
 
 builtins.profile_file = profile_file
 
@@ -725,7 +730,7 @@ def debugcell(cellname, filename=None, post_mortem=False):
         filename = get_current_file_name()
         if filename is None:
             return
-    
+
     kernel = get_ipython().kernel
     if kernel.is_debugging():
         if os.name == 'nt':
@@ -750,19 +755,20 @@ def debugcell(cellname, filename=None, post_mortem=False):
 builtins.debugcell = debugcell
 
 
-PROFILE_FILE = "tmp.prof"
-
 def profile_cell(cellname, filename=None, post_mortem=False):
     """Profile a cell."""
+    profile_file = tempfile.NamedTemporaryFile()
     try:
         runcell(
             cellname=cellname,
             filename=filename,
-            profile_filename=PROFILE_FILE)
+            profile_filename=profile_file.name)
     finally:
-        if os.path.isfile(PROFILE_FILE):
-            with open(PROFILE_FILE, "br") as f:
-                frontend_request().show_profile_file(f.read())
+        profile_result = profile_file.read()
+        if profile_result:
+            frontend_request().show_profile_file(profile_result)
+        profile_file.close()
+
 
 builtins.profile_cell = profile_cell
 
