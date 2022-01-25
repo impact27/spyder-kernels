@@ -823,7 +823,7 @@ def profile_cell(cellname, filename=None, post_mortem=False):
     """Profile a cell."""
     with profile_tmp_file() as tmp_file:
         exec_fun = partial(cProfile.runctx, filename=tmp_file)
-        runcell(
+        _exec_cell(
             cellname=cellname,
             filename=filename,
             exec_fun=exec_fun,
