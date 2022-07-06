@@ -6,9 +6,29 @@
 
 import linecache
 import os.path
+import types
 import sys
 
 from IPython.core.getipython import get_ipython
+
+
+def new_main_mod(filename, modname):
+    """
+    Reimplemented from IPython/core/interactiveshell.py to avoid caching
+    and clearing recursive namespace.
+    """
+    filename = os.path.abspath(filename)
+
+    main_mod = types.ModuleType(
+        modname,
+        doc="Module created for script run in IPython")
+
+    main_mod.__file__ = filename
+    # It seems pydoc (and perhaps others) needs any module instance to
+    # implement a __nonzero__ method
+    main_mod.__nonzero__ = lambda : True
+
+    return main_mod
 
 
 class NamespaceManager:
@@ -27,6 +47,7 @@ class NamespaceManager:
         self.current_namespace = current_namespace
         self._previous_filename = None
         self._previous_main = None
+        self._previous_running_namespace = None
         self._reset_main = False
         self._file_code = file_code
         ipython_shell = get_ipython()
@@ -47,9 +68,7 @@ class NamespaceManager:
                     self._previous_filename = self.ns_globals['__file__']
                 self.ns_globals['__file__'] = self.filename
             else:
-
-                main_mod = ipython_shell.new_main_mod(
-                    self.filename, '__main__')
+                main_mod = new_main_mod(self.filename, '__main__')
                 self.ns_globals = main_mod.__dict__
                 self.ns_locals = None
                 # Needed to allow pickle to reference main
@@ -59,6 +78,8 @@ class NamespaceManager:
                 self._reset_main = True
 
         # Save current namespace for access by variable explorer
+        self._previous_running_namespace = (
+            ipython_shell.kernel._running_namespace)
         ipython_shell.kernel._running_namespace = (
             self.ns_globals, self.ns_locals)
 
@@ -83,7 +104,8 @@ class NamespaceManager:
         Reset the namespace.
         """
         ipython_shell = get_ipython()
-        ipython_shell.kernel._running_namespace = None
+        ipython_shell.kernel._running_namespace = (
+            self._previous_running_namespace)
         if self._previous_filename:
             self.ns_globals['__file__'] = self._previous_filename
         elif '__file__' in self.ns_globals:
