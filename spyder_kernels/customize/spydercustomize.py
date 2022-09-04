@@ -749,8 +749,10 @@ def profile_cell(cellname, filename=None, post_mortem=False):
 builtins.profile_cell = profile_cell
 
 
-def profile(line):
+def profile(line, cell=None):
     """Profile the given line."""
+    if cell is not None:
+        line += '\n' + cell
     with profile_tmp_file() as tmp_file:
         cProfile.run(
             line,
