@@ -325,6 +325,7 @@ def main():
     kernel.shell.register_magic_function(varexp)
     # register profile magic
     import spydercustomize
+    kernel.shell.register_magic_function(spydercustomize.line_profile)
     kernel.shell.register_magic_function(spydercustomize.profile, 'line_cell')
 
     # Set Pdb class to be used by %debug and %pdb.

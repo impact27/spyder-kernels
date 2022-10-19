@@ -760,6 +760,26 @@ def profile(line, cell=None):
         )
 
 
+def line_profile(line):
+    """Line profile the given line."""
+    import line_profiler
+    prof = line_profiler.LineProfiler()
+    builtins.__dict__['profile'] = prof
+    try:
+        stdout = sys.stdout
+        stderr = sys.stderr
+        ipython_shell = get_ipython()
+        prof.runctx(
+            line,
+            ipython_shell.get_global_scope(2),
+            ipython_shell.get_local_scope(2))
+        sys.stdout = stdout
+        sys.stderr = stderr
+        prof.print_stats()
+    finally:
+        builtins.__dict__.pop('profile')
+
+
 def cell_count(filename=None):
     """
     Get the number of cells in a file.
