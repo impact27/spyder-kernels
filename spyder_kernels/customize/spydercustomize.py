@@ -14,14 +14,18 @@
 import ast
 import bdb
 import builtins
+import contextlib
+import cProfile
 import io
 import logging
 import os
 import pdb
+import tempfile
 import shlex
 import sys
 import time
 import warnings
+from functools import partial
 
 from IPython.core.getipython import get_ipython
 from IPython.core.inputtransformer2 import (
@@ -31,7 +35,8 @@ from spyder_kernels.comms.frontendcomm import frontend_request
 from spyder_kernels.customize.namespace_manager import NamespaceManager
 from spyder_kernels.customize.spyderpdb import SpyderPdb, get_new_debugger
 from spyder_kernels.customize.umr import UserModuleReloader
-from spyder_kernels.customize.utils import capture_last_Expr, canonic
+from spyder_kernels.customize.utils import (
+    capture_last_Expr, canonic, create_pathlist)
 
 
 logger = logging.getLogger(__name__)
@@ -594,6 +599,41 @@ def debugfile(filename=None, args=None, wdir=None, post_mortem=False,
 builtins.debugfile = debugfile
 
 
+@contextlib.contextmanager
+def profile_tmp_file():
+    """Get temporary file for profiling results."""
+    with tempfile.TemporaryDirectory() as tempdir:
+        profile_file = os.path.join(tempdir, "profile.results")
+        try:
+            yield profile_file
+        finally:
+            if os.path.isfile(profile_file):
+                with open(profile_file, "br") as f:
+                    profile_result = f.read()
+                frontend_request(blocking=False).show_profile_file(
+                    profile_result, create_pathlist())
+
+
+def profile_file(filename=None, args=None, wdir=None, post_mortem=False,
+                 current_namespace=False):
+    """
+    Profile filename
+    args: command line arguments (string)
+    wdir: working directory
+    post_mortem: boolean, included for compatiblity with runfile
+    """
+    with profile_tmp_file() as tmp_file:
+        exec_fun = partial(cProfile.runctx, filename=tmp_file)
+        _exec_file(
+            filename=filename, args=args, wdir=wdir,
+            current_namespace=current_namespace,
+            exec_fun=exec_fun,
+            stack_depth=1)
+
+
+builtins.profile_file = profile_file
+
+
 def runcell(cellname, filename=None, post_mortem=False):
     """
     Run a code cell from an editor as a file.
@@ -693,6 +733,31 @@ def debugcell(cellname, filename=None, post_mortem=False):
 
 
 builtins.debugcell = debugcell
+
+
+def profile_cell(cellname, filename=None, post_mortem=False):
+    """Profile a cell."""
+    with profile_tmp_file() as tmp_file:
+        exec_fun = partial(cProfile.runctx, filename=tmp_file)
+        _exec_cell(
+            cellname=cellname,
+            filename=filename,
+            exec_fun=exec_fun,
+            stack_depth=1)
+
+
+builtins.profile_cell = profile_cell
+
+
+def profile(line, cell=None):
+    """Profile the given line."""
+    if cell is not None:
+        line += '\n' + cell
+    with profile_tmp_file() as tmp_file:
+        cProfile.run(
+            line,
+            filename=tmp_file
+        )
 
 
 def cell_count(filename=None):

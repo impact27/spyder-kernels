@@ -323,6 +323,9 @@ def main():
 
     # Set our own magics
     kernel.shell.register_magic_function(varexp)
+    # register profile magic
+    import spydercustomize
+    kernel.shell.register_magic_function(spydercustomize.profile, 'line_cell')
 
     # Set Pdb class to be used by %debug and %pdb.
     # This makes IPython consoles to use the class defined in our
