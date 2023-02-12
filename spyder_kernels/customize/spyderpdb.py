@@ -104,6 +104,9 @@ class SpyderPdb(ipyPdb):
         # Keep track of interrupting state to avoid several interruptions
         self.interrupting = False
 
+        # Should the frontend force go to the current line?
+        self._request_where = False
+
     # --- Methods overriden for code execution
     def print_exclamation_warning(self):
         """Print pdb warning for exclamation mark."""
@@ -339,11 +342,8 @@ class SpyderPdb(ipyPdb):
 
         Take a number as argument as an (optional) number of context line to
         print"""
-        super(SpyderPdb, self).do_where(arg)
-        try:
-            frontend_request(blocking=False).do_where()
-        except (CommError, TimeoutError):
-            logger.debug("Could not send where request to the frontend.")
+        self._request_where = True
+        return super(SpyderPdb, self).do_where(arg)
 
     do_w = do_where
 
@@ -636,7 +636,8 @@ class SpyderPdb(ipyPdb):
 
         # Send the input request.
         self._cmd_input_line = None
-        kernel.frontend_call().pdb_input(prompt, state=self.get_pdb_state())
+        kernel.frontend_call(display_error=True).pdb_input(
+            prompt, state=self.get_pdb_state())
 
         # Allow GUI event loop to update
         is_main_thread = (
@@ -763,6 +764,10 @@ class SpyderPdb(ipyPdb):
         if frame is None:
             self._previous_step = None
             return state
+
+        if self._request_where:
+            self._request_where = False
+            state["do_where"] = True
 
         # Get filename and line number of the current frame
         fname = self.canonic(frame.f_code.co_filename)
